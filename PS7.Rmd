@@ -1,0 +1,790 @@
+---
+title: "Problem Set 7 - Classification Contest"
+author: "Nishanth Gandhidoss"
+date: "10 March 2017"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r Installing the packages, include = FALSE}
+# installing the packages
+# Function to Install packages
+# checks the available.packages before
+installNewPackage <- function(packageName) {
+        if(packageName  %in% rownames(installed.packages()) == FALSE)
+        {
+                install.packages(packageName, repos = "http://cran.us.r-project.org", dependencies=TRUE)
+        }
+}
+```
+
+
+## About the data
+
+The file masking.csv describes an experiment in which people saw different letter stimuli (A..Z) briefly, and had to make a forced choice identification, each time between the actual letter and an alternative. The data summarizes the median response time for each stimulus letter for each person. Two different masks were given, a @ in one condition (mask==0) and a # in a second condition (mask==1). A mask is a image that appears immediately before and after the stimulus to disrupt processing.  Masks will have different impacts on different letters, and so we may be able to detect which mask a person had by their response patterns.  
+
+Lets identify which mask was given based only on the median response times.
+
+```{r reading the training set}
+train_all <- read.csv("masking.csv")
+head(train_all)
+```
+
+Before moving to buliding the model, let read the test file containing 12 data points.
+
+```{r test set}
+test_all <- read.csv("testcases-hidden.csv", header = FALSE)
+colnames(test_all) <- c(LETTERS)
+head(test_all)
+```
+
+
+Next, we are going to bulid some of the below classifcation Machinne learning algorithums to create a model to fit the data and also generalize for unseen data points.
+
+* Logistic regression
+* LDA
+* QDA
+* Naive Bayes
+* K-nearest Neighbor
+* Decision/partition Tree
+* Random Forest
+* SVM
+* Neural Network
+
+##### Data Preprocessing 
+
+Lets check for NA values in the dataset to ensure there will be no problem while buliding the models.
+
+First, will check for the train data
+
+```{r Data preprocessing for train data}
+# Installing the required package
+installNewPackage("Amelia")
+library(Amelia)
+
+sapply(train_all, function(x) sum(is.na(x)))
+
+# Plotting the data to see for NAs
+missmap(train_all, main = "Missing values vs observed - Train set")
+```
+
+From this we can say that there is no NA or empty data in the train set.
+
+Thus, lets check the same for the test set we have.
+
+```{r Data preprocessing for test data}
+sapply(test_all, function(x) sum(is.na(x)))
+
+# Plotting the data to see for NAs
+missmap(test_all, main = "Missing values vs observed - Test set")
+```
+
+As we can see that Test set also has no NA values. Now that we are sure the data is good, we can go to modelling part. But before that we must need to select feautures to use in our prediction. Thus we need to look for some feauture selection process.
+
+#### Feature Selection
+
+In this I am going to use three different methods of feature selection before finalizing the independent variables to use in the model. They are 
+
+* Correlation
+* Rank by importance
+* Recursive Feature Elimination
+
+#### Correlation
+
+I am going to use pearson correlation to see correlation between the variables with help of ggplot heatmaps. I am using pearson because it is much suitable for continuous variables.
+
+```{r correlation and heatmaps}
+# Correlations between variables found to get to know 
+# the variables to be added for the buliding the model.
+cor_mat <- round(cor(train_all), 3)
+
+cor_mat[round(abs(cor_mat["mask", ]), 1) > .2, "mask"]
+
+# Create the correlation heatmap with ggplot2
+installNewPackage("reshape2")
+library(reshape2)
+
+melted_cor_mat <- melt(cor_mat)
+
+# Plotting the heatmaps for correlations
+installNewPackage("ggplot2")
+library(ggplot2)
+ggplot(data = melted_cor_mat, aes(x=Var1, y=Var2, fill=value)) +
+    geom_tile(color = "white")+
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+    midpoint = 0, limit = c(-1,1), space = "Lab",
+    name="Pearson\nCorrelation") +
+    theme_minimal()+
+    theme(axis.text.x = element_text(angle = 45, vjust = 1,
+    size = 12, hjust = 1))+
+    coord_fixed()
+```
+
+So here we have the following variables selected from the correlation method. They are
+
+* A
+* C
+* D
+* G
+* H
+* I
+* O
+* Q
+* Y
+
+But is it reliable to go with just correlation for buliding the model. Lets look for some more methods.
+
+#### Rank by Importance
+
+The importance of features can be estimated from data by building a model. Some methods like decision trees have a built in mechanism to report on variable importance. For other algorithms, the importance can be estimated using a ROC curve analysis conducted for each attribute.
+
+```{r rank by importance}
+installNewPackage("caret")
+library(caret)
+installNewPackage("mlbench")
+library(mlbench)
+set.seed(690)
+
+# prepare training scheme
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+# train the model
+model <- train(as.factor(mask) ~ ., data = train_all, method = "lvq", preProcess = "scale",
+               trControl = control)
+# estimate variable importance
+importance <- varImp(model, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+```
+
+The varImp is then used to estimate the variable importance, which is printed and plotted. It shows that the variables O, C, D, A, G, H, I, Y ,Q, S, t and M are the top 12 most important attributes in the dataset. But the problem here is this method does not give us the cut off. The cut off is decided by the me here. So, I thought of looking at a one more feature selection wrapper method.
+
+
+#### Recursive Feature Elimination
+
+Recursive Feature selection Elimination method gives us the advantage in which it will approximately gives us the cut off value we can use to minimize the generalization error that arise while predicting with the model.
+
+```{r RFE}
+set.seed(100)
+# define the control using a random forest selection function
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+# run the RFE algorithm
+results <- rfe(train_all[, - 27], as.factor(train_all[, 27]), sizes=c(1:8), rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+
+Thus, from this method we have the following variables that could possibly explain with 0.89 accuracy for the model generated with the 10 cross validation using the caret package.  
+
+* O
+* C
+* D
+* Y
+* I
+* H
+* A
+* T
+
+```{r features selection}
+significant_features <- c("O", "C", "D", "Y", "I", "H", "A", "T", "mask")
+train_after_fs <- train_all[, significant_features]
+test_after_fs <- test_all[, significant_features[-9]]
+```
+
+
+#### Preparing the data for the 10 fold cross validation
+
+Although, while doing the feauture selection we had the cross validation. I am creating the 10 fold of the train data so that I can use it if required while developing the models like KNN. I am going to perform 10 - fold cross validation to ensure the generalization of the model. First lets prepare the data for the cross validation with maximum possiblity of equal distribution of class labels in each folds.
+
+```{r prep data for cross validation}
+# Data preprocessing for 10 fold cross validation
+
+# Setting the seed for reproduciablility
+set.seed(690)
+
+# NO of fold
+k_fold <- 10
+
+# Creating the folds variable in the data frame
+# music$folds <- createFolds(music$Top10, k = n_fold, list = FALSE)
+cv_index_list <- createFolds(train_all$mask, k = k_fold, list = TRUE, returnTrain = FALSE)
+
+# Checking the class label proportions
+for(i in 1:k_fold) {
+    fold <- train_all$mask[cv_index_list[[i]]]
+    fold_length <- length(fold)
+    class0_prop <- round(length(fold[fold == 0]) / fold_length, 2)
+    class1_prop <- round(length(fold[fold == 1]) /  fold_length, 2)
+    print(paste("Fold" , i , "length", fold_length, sep = " "))
+    print(paste("Class Label(0)", round(class0_prop, 2), sep = " "))
+    print(paste("Class Label(1)", round(class1_prop, 2), sep = " "))
+}
+
+```
+
+#### Buliding the models 
+
+As we have completed the so called tough part of data science that is the data preprocessing and feauture selection, lets dive into buliding the models. Here I am going to bulid the following seven classification models.
+
+* Logistic Regression
+* Naive Bayes
+* K-nearest Neighbor
+* Decision/partition Tree
+* Random Forest
+* SVM
+* Neural Network
+
+#### Logistic Regression
+
+Logistic Regression is a classification not a regression algorithm. It is used to estimate discrete values (Binary values like 0/1, yes/no, true/false) based on given set of independent variable(s). In simple words, it predicts the probability of occurrence of an event by fitting data to a logit function. Hence, it is also known as logit regression. Since, it predicts the probability, its output values lies between 0 and 1 (as expected).
+
+
+```{r Logistic Regression, warning = FALSE, error = TRUE}
+installNewPackage("MLmetrics")
+library(MLmetrics)
+
+# Setting the seed
+set.seed(1)
+
+for(data in c("train_all", "train_after_fs")) {
+        
+    # Intailize variables
+    total_acc <- 0
+    total_error_rate <- 0
+    total_AUC <- 0
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+    
+    # Running the Logistic Regression with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(fold in 1:k_fold) {
+        train_set <- data[-cv_index_list[[fold]], ] 
+        test_set <- data[cv_index_list[[fold]], ] 
+        
+        # Fitting the Logistic Regression model
+        log_fit <- glm(mask ~ ., train_set, family = binomial(), maxit = 100)
+        
+        # Calculating Accuracy. Error, AUC
+        test_prediction <- predict(log_fit, test_set, type = "response")
+        test_prediction <- ifelse(test_prediction > 0.5,1,0)
+        accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+        error_rate <- 1 - accuracy
+        AUC <- round(AUC(test_prediction, test_set$mask), 2)
+        total_acc <- total_acc + accuracy
+        total_error_rate <- total_error_rate + error_rate
+        total_AUC <- total_AUC + AUC
+    }
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}   
+
+```
+
+So looking at the overall accuracy from both the model, it is better to go with smaller model that has almost equal accuracy to the full model.
+
+
+```{r Logistic Regression fit}
+# Training the model again
+log_fit <- glm(mask ~ ., data = train_after_fs, family = binomial(), maxit = 100)
+# Predicting the test set on the model
+log_pred <- predict(log_fit, test_after_fs, type = "response")
+log_pred <- ifelse(log_pred >= 0.5, 1, 0)
+log_pred
+```
+
+Thus, the above we have the prediction for the test set using Logistic Regression classifier with smaller model.
+
+
+#### Naive Bayes
+
+Naive Bayes is a classification technique based on Bayes' theorem with an assumption of independence between predictors. In simple terms, a Naive Bayes classifier assumes that the presence of a particular feature in a class is unrelated to the presence of any other feature. 
+
+![](https://www.analyticsvidhya.com/wp-content/uploads/2015/08/Bayes_rule.png)
+
+```{r Naive Bayes}
+installNewPackage("e1071")
+library(e1071)
+
+for(data in c("train_all", "train_after_fs")) {
+        
+    # Intailize variables
+    total_acc <- 0
+    total_error_rate <- 0
+    total_AUC <- 0
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+    
+    # Running the Naive Bayes with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(fold in 1:k_fold) {
+        train_set <- data[-cv_index_list[[fold]], ] 
+        test_set <- data[cv_index_list[[fold]], ] 
+        
+        # Fitting the Naive bayes model
+        nb_fit <- naiveBayes(as.factor(mask) ~ ., data = train_set)
+        
+        # Calculating Accuracy. Error, AUC
+        test_prediction <- predict(nb_fit, test_set, type = "class")
+        
+        accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+        error_rate <- 1 - accuracy
+        AUC <- round(AUC(test_prediction, test_set$mask), 2)
+        # print(paste("Test set fold #", fold, sep = " "))
+        # cat("\n")
+        # print(paste("Accuracy is", accuracy, sep = " "))
+        # print(paste("Error is", error_rate, sep =" "))
+        # print(paste("Area under the curve(AUC) is", AUC, sep = " "))
+        # cat("\n")
+        total_acc <- total_acc + accuracy
+        total_error_rate <- total_error_rate + error_rate
+        total_AUC <- total_AUC + AUC
+    }
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}
+```
+
+Naive Bayesian model is easy to build and particularly useful for very large data sets. Along with simplicity, Naive Bayes is known to outperform even highly sophisticated classification methods.
+
+Here we can see that the feature selection model with less number of predictor outperforms the full model by nearly 8 percent so lets predict the  Althogh we have much smaller datset. Thus, lets predict the given test set with the smaller model.
+
+```{r naive fit}
+# Training the model again
+nb_fit <- naiveBayes(as.factor(mask) ~ ., data = train_after_fs)
+# Predicting the test set on the model
+nb_pred <- predict(nb_fit, test_after_fs, type = "class")
+nb_pred
+```
+
+Thus, the above we have the prediction for the test set using naive bayes classifier with smaller model.
+
+
+#### K - Nearest Neighbour
+
+It can be used for both classification and regression problems. However, it is more widely used in classification problems in the industry. K nearest neighbors is a simple algorithm that stores all available cases and classifies new cases by a majority vote of its k neighbors. The case being assigned to the class is most common amongst its K nearest neighbors measured by a distance function.
+
+These distance functions can be Euclidean, Manhattan, Minkowski and Hamming distance. First three functions are used for continuous function and fourth one (Hamming) for categorical variables. If K = 1, then the case is simply assigned to the class of its nearest neighbor. At times, choosing K turns out to be a challenge while performing KNN modeling.
+
+```{r Knn}
+k_values <- c(1, 3, 5, 7, 9)
+
+for(k in k_values) {  
+    for(data in c("train_all", "train_after_fs")) {
+        # Intailize variables
+        total_acc <- 0
+        total_error_rate <- 0
+        total_AUC <- 0
+        
+        # To differentiate full and feature subset model
+        if(data == "train_all") {
+            msg <- "With the full model"
+            data <- train_all
+        } else {
+            msg <- "After feature selection"
+            data <- train_after_fs
+        }
+        
+        # Running the KNN with 10 - fold cross validation
+        # Accuracy, error, AUC are rounded off to two decimal points
+        for(fold in 1:k_fold) {
+            train_set <- data[-cv_index_list[[fold]], ] 
+            test_set <- data[cv_index_list[[fold]], ] 
+            
+            # Fitting the Naive bayes model
+            knn_predicted_values <- knn(train = train_set, test = test_set, cl = train_set$mask, k = k)
+            
+            # Calculating Accuracy. Error, AUC
+            accuracy <- round(Accuracy(knn_predicted_values, test_set$mask), 2)
+            error_rate <- 1 - accuracy
+            AUC <- round(AUC(knn_predicted_values, test_set$mask), 2)
+            total_acc <- total_acc + accuracy
+            total_error_rate <- total_error_rate + error_rate
+            total_AUC <- total_AUC + AUC
+        }
+        cat("==========================================================\n\n")
+        cat("K value = ", k, "\n\n", msg, "\n\n")
+        cat("==========================================================\n\n")
+        cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+        cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+        cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+        cat("\n==========================================================\n\n")
+    }
+}
+```
+
+Here we have feature subset model (smaller model) has better performance in k values. With KNN, it looks like the we have best accuracy from k value = 1 ie) 0.88. But in genreal using k = 1 wont be a good option considering the genralization in consideration. Thus its better to go with K = 9. KNN is computaionally intense since we need to calculate the distance at each step and higher value of K will make it much more difficult only. However here we have a much smaller dataset. Thus, its okay to go with k = 9. So we we will use k = 9 and smaller model with the features selected from feauture selection methods.
+
+```{r knn fit}
+test <-  test_after_fs
+set.seed(100)
+test$mask <- sample(c(0, 1), 12, replace = TRUE)
+# Predicting the test set on the model
+knn_pred <-  knn(train = train_after_fs, test = test, cl = train_after_fs$mask, k = 9)
+knn_pred
+```
+
+
+Thus, the above we have the prediction for the test set using K nearesh neighbour classifier with the  smaller model an K value = 9.
+
+#### Decision/partition Tree
+
+After seeing the some simple machine learning classification algorithm, Now let make a step further by looking into Decision Tree algorithm. This is one of the favorite algorithm and I use it quite frequently. It is a type of supervised learning algorithm that is mostly used for classification problems. Surprisingly, it works for both categorical and continuous dependent variables. In this algorithm, we split the population into two or more homogeneous sets. This is done based on most significant attributes/ independent variables to make as distinct groups as possible. Below some example that I found from internet 
+
+![](https://www.analyticsvidhya.com/wp-content/uploads/2015/08/IkBzK.png)
+
+```{r Decision Tree}
+installNewPackage("rpart")
+library(rpart)
+installNewPackage("rpart.plot")
+library(rpart.plot)
+installNewPackage("rattle")
+library(rattle)
+
+for(data in c("train_all", "train_after_fs")) {
+        
+    # Intailize variables
+    total_acc <- 0
+    total_error_rate <- 0
+    total_AUC <- 0
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+    
+    # Running the Decision Tree with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(fold in 1:k_fold) {
+        train_set <- train_all[-cv_index_list[[fold]], ] 
+        test_set <- train_all[cv_index_list[[fold]], ] 
+        
+        tree_fit <- rpart(mask ~ ., method="class", data = train_set)
+        # fancyRpartPlot(tree_fit, main = paste("Before Pruning - Fold #", fold, sep = " "))
+    
+        # Find cp with minimum Cross validate error from rpart results
+        min_error_cp <- tree_fit$cptable[which.min(tree_fit$cptable[,"xerror"]), "CP"]
+        
+        # pruning the tree with minimum cross validate error
+        ptree_fit <- prune(tree_fit, cp = min_error_cp)
+        # fancyRpartPlot(ptree_fit, main = paste("After Pruning - Fold #", fold, sep = " "))
+        
+        # Calculating Accuracy. Error, AUC
+        test_prediction <- predict(ptree_fit, test_set, type = "class")
+        accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+        error_rate <- 1 - accuracy
+        
+        AUC <- round(AUC(test_prediction, test_set$mask), 2)
+        total_acc <- total_acc + accuracy
+        total_error_rate <- total_error_rate + error_rate
+        total_AUC <- total_AUC + AUC
+    }
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}
+```
+
+
+Here we can see that the feature selection model with less number of predictor is better compared to the full model. So here lets use the smaller which got after pruning with lowest cross validation. Lets predict the given test set with the smaller model.
+
+```{r Decision Tree fit}
+# Training the model again
+tree_fit <- rpart(mask ~ ., method="class", data = train_after_fs)
+# Find cp with minimum Cross validate error from rpart results
+min_error_cp <- tree_fit$cptable[which.min(tree_fit$cptable[,"xerror"]), "CP"]
+# pruning the tree with minimum cross validate error
+ptree_fit <- prune(tree_fit, cp = min_error_cp)
+
+# Predicting the test set on the model
+dt_pred <- predict(ptree_fit, test_after_fs, type = "class")
+dt_pred
+```
+
+
+Thus, the above we have the prediction for the test set using Decision tree classifier with smaller model.
+
+
+### Random Forest
+
+Random Forest is a trademark term for an ensemble of decision trees. In Random Forest, we've collection of decision trees (so known as "Forest"). To classify a new object based on attributes, each tree gives a classification and we say the tree "votes" for that class. The forest chooses the classification having the most votes (over all the trees in the forest). here I am using a random forest model with 100 trees.
+
+```{r Random Forest}
+installNewPackage("randomForest")
+library(randomForest)
+
+for(data in c("train_all", "train_after_fs")) {
+        
+    # Intailize variables
+    total_acc <- 0
+    total_error_rate <- 0
+    total_AUC <- 0
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+    
+    # Running the Random Forest with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(fold in 1:k_fold) {
+        train_set <- data[-cv_index_list[[fold]], ] 
+        test_set <- data[cv_index_list[[fold]], ] 
+        
+        # Fitting the Random Forest model
+        rf_fit <- randomForest(as.factor(mask) ~ ., data = train_set, importance = TRUE, ntree = 100)
+        
+        # Calculating Accuracy. Error, AUC
+        test_prediction <- predict(nb_fit, test_set, type = "class")
+        
+        accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+        error_rate <- 1 - accuracy
+        AUC <- round(AUC(test_prediction, test_set$mask), 2)
+        total_acc <- total_acc + accuracy
+        total_error_rate <- total_error_rate + error_rate
+        total_AUC <- total_AUC + AUC
+    }
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}
+```
+
+So for the random forest model we have something interesting, that is, both the full model and smaller model have same accuracy. Since similar the better, I am predicting the test set with the smaller feature subset model itself.
+
+
+```{r Random forest fit}
+# Training the model again
+rf_fit <- randomForest(as.factor(mask) ~ ., data = train_after_fs, importance = TRUE, ntree = 100)
+# Predicting the test set on the model
+rf_pred <- predict(rf_fit, test_after_fs, type = "class")
+rf_pred
+```
+
+Thus, the above we have the prediction for the test set using Random Forest classifier with smaller model.
+
+
+#### Support Vector Machine
+
+Support Vector Machine" (SVM) is a supervised machine learning algorithm which can be used for both classification or regression challenges. However,  it is mostly used in classification problems. In this algorithm, we plot each data item as a point in n-dimensional space (where n is number of features you have) with the value of each feature being the value of a particular coordinate. Then, we perform classification by finding the hyper-plane that differentiate the two classes very well. 
+
+```{r SVM}
+# Intializing the cost variables
+cost_values <- c(0.01, 0.1, 1, 10, 100)
+
+for(data in c("train_all", "train_after_fs")) {
+    
+    total_acc_list <- c()
+    total_error_rate_list <- c()
+    total_AUC_list <- c()
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+        
+    # Running the Support Vector machine for cost values 
+    # 0.01, 0.1, 1, 10, 10, 100 with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(cost in cost_values) {
+        
+        # Intailize variables
+        total_acc <- 0
+        total_error_rate <- 0
+        total_AUC <- 0
+        
+        for(fold in 1:k_fold) {
+            train_set <- data[-cv_index_list[[fold]], ] 
+            test_set <- data[cv_index_list[[fold]], ] 
+            
+            # Fitting the model
+            svm_fit <- svm(as.factor(mask) ~ ., data = train_set, kernel = "radial", cost = cost)
+        
+            # Calculating Accuracy. Error, AUC
+            test_prediction <- predict(svm_fit, test_set, type = 'class')
+            accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+            error_rate <- 1 - accuracy
+            AUC <- round(AUC(test_prediction, test_set$mask), 2)
+            total_acc <- total_acc + accuracy
+            total_error_rate <- total_error_rate + error_rate
+            total_AUC <- total_AUC + AUC
+        }
+        total_acc_list <- c(total_acc_list, total_acc / k_fold)
+        total_error_rate_list <- c(total_error_rate_list, total_error_rate / k_fold)
+        total_AUC_list <- c(total_AUC_list, total_AUC / k_fold)
+    }
+    
+    max_acc_index <- which.max(total_acc_list)
+    best_cost <- cost_values[max_acc_index]
+    best_acc <- total_acc_list[max_acc_index]
+    best_error_rate <- total_error_rate_list[max_acc_index]
+    best_AUC <- total_AUC_list[max_acc_index]
+    
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Best model is one with cost as", best_cost, "\n\n", sep = " "))
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}
+```
+
+Here we are provided two models. The full model is one with a high cost function of 100 which has  a accracy of 0.88. And on the otherhand, it is a small model with cost as 0.1 and providing a overall accuracy od 0,85. When we take factor of generalize the model to test data, I feel the   model will do better job.
+
+```{r svm fit}
+# Training the model again
+svm_fit <- svm(as.factor(mask) ~ ., data = train_after_fs, kernel = "radial", cost = .1)
+# Predicting the test set on the model
+svm_pred <- predict(svm_fit, test_after_fs, type = "class")
+svm_pred
+```
+
+Thus, the above we have the prediction for the test set using Support vector machine classifier with radial kernel and cost of 0.1 on the smaller model.
+
+
+#### Neural Network
+
+Deep Learning and Neural Network lies in the heart of products such as self driving cars, image recognition software, recommender systems etc. Evidently, being a powerful algorithm, it is highly adaptive to various data types as well. Neural Networks (NN), also called as Artificial Neural Network is named after its artificial representation of working of a human being's nervous system. 
+
+```{r Neural Network}
+installNewPackage("nnet")
+library(nnet)
+
+# Setting the seed for same intial weights
+set.seed(28)
+
+for(data in c("train_all", "train_after_fs")) {
+        
+    # Intailize variables
+    total_acc <- 0
+    total_error_rate <- 0
+    total_AUC <- 0
+    
+    # To differentiate full and feature subset model
+    if(data == "train_all") {
+        msg <- "With the full model"
+        data <- train_all
+    } else {
+        msg <- "After feature selection"
+        data <- train_after_fs
+    }
+    
+    # Running the Neural Network with 10 - fold cross validation
+    # Accuracy, error, AUC are rounded off to two decimal points
+    for(fold in 1:k_fold) {
+        train_set <- data[-cv_index_list[[fold]], ] 
+        test_set <- data[cv_index_list[[fold]], ] 
+        
+        # Fitting the Neural Network model
+        nn_fit <- nnet(as.factor(mask) ~ ., data = train_set, size = 10, decay=5e-4, rang = .1,
+                       maxit = 200, trace = FALSE)
+
+        # Calculating Accuracy. Error, AUC
+        test_prediction <- predict(nn_fit, test_set, type = "class")
+        accuracy <- round(Accuracy(test_prediction, test_set$mask), 2)
+        error_rate <- 1 - accuracy
+        AUC <- round(AUC(test_prediction, test_set$mask), 2)
+        total_acc <- total_acc + accuracy
+        total_error_rate <- total_error_rate + error_rate
+        total_AUC <- total_AUC + AUC
+    }
+    cat("==========================================================\n\n")
+    cat(msg, "\n\n")
+    cat("==========================================================\n\n")
+    cat(paste("Overall accuracy is", round(total_acc / k_fold, 2), sep = " "), "\n\n")
+    cat(paste("Overall error is", round(total_error_rate / k_fold, 2), sep =" "), "\n\n")
+    cat(paste("Overall area under the curve(AUC) is", round(total_AUC / k_fold, 2), sep = " "), "\n")
+    cat("\n==========================================================\n\n")
+}
+```
+
+Compared to other algorithm I used before, this is something that stands out say we have nearly .4 increase in the accuracy for the full model. But However , it important to consider the fact that the full model consists of nearly 26 features whereas the smaller model has only 8 features. So for the Neural network algorithm also I am going with small model for predicting my test set.
+
+```{r neural network fit}
+# Training the model again
+nn_fit <- nnet(as.factor(mask) ~ ., data = train_after_fs, size = 10, decay=5e-4, rang = .1,
+                       maxit = 200, trace = FALSE)
+# Predicting the test set on the model
+nn_pred <- predict(nn_fit, test_after_fs, type = "class")
+nn_pred
+```
+
+Thus, the above we have the prediction for the test set using Support vector machine classifier with radial kernel and cost of 0.1 on the smaller model.
+
+**So we have completed building our model for the six classifcation algorithms. Now we have to decide what is going to be the output for the test set.**
+
+#### Comparing Models - Define test set labels
+
+In order to decide the final labels for the test set from the results of the previous algorithm, I am going to decide by taking the average of all the prediction got from the 6 classification models respectively to come up with my final prediction mask for the test set.
+
+```{r Final}
+# Creating a data frame of all prediction
+final_pred <- data.frame(Logistic = log_pred, Naive.Bayes = nb_pred, Knn = knn_pred, 
+                         Decision.Tree = dt_pred, Random.Forest = rf_pred, svm = svm_pred, 
+                         Nnet = nn_pred)
+mask <- rowMeans(apply(final_pred, 2, function(x) as.numeric(x)))
+final_pred$mask <- ifelse(mask >= 0.5, 1, 0)
+final_pred
+test_all$mask <- final_pred$mask
+test_all
+```
+
+Thus, that is final prediction label for the given test set.
+
+** End of the assignment **

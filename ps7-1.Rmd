@@ -1,0 +1,41 @@
+---
+title: "Problem Set 7: Prediction Contest"
+author: "Shane T. Mueller shanem@mtu.edu"
+date: "January 9, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Modeling of  Data
+
+The file masking.csv describes an experiment in which people saw different letter stimuli (A..Z) briefly, and had to make a forced choice identification, each time between the actual letter and an alternative. The data summarizes the median response time for each stimulus letter for each person. Two different masks were given, a @ in one condition (mask==0) and a # in a second condition (mask==1). A mask is a image that appears immediately before and after the stimulus to disrupt processing.  Masks will have different impacts on different letters, and so we may be able to detect which mask a person had by their response patterns.  Can you identify which mask was given based only on the median response times?
+
+```{r}
+dat.all <- read.csv("masking.csv")
+head(dat.all)
+
+```
+In this problem set, you must build at least six classification models, from the models we have learned about in class. These include:
+
+* Logistic regression
+* LDA
+* QDA
+* Naive Bayes
+* Decision/partition Tree
+* Random Forest
+* K-nearest Neighbor
+* SVM
+* Neural Network
+
+Build six models of the data. In each case, you must described the model, use some type of cross-validation or complexity scheme (such as AIC) to select parameters, and identify a justifiably good model within the category. When necessary, be sure fit the model enough times so that you know you have produced a good solution (i.e., when the optimization may end up in a local optimum).  Write a brief description  (2-4 sentences) about each of the six models, describing whether/why/how the model is doing, and provide evidence to back up your conclusions.
+
+
+# Prediction contest
+Make predictions with each of your selected models about the twelve NEW cases in the testcases file. Show a table summarizing the predictions across models.  Then, using whatever criteria you want, select your best guess about each of the twelve cases (this could be a consensus of models, a single prediction of your best model, or even just flipping a coin).  Your predictions will be compared to other students in class, and we will declare a "winner".
+
+# Discuss Comparing Models
+
+Write a discussion comparing the six different models you have fit.  Describe the advantages and disadvantages of each model for this problem. Discuss why you chose the particular prediction that you did, in the context of the different model's strengths and weaknesses.
